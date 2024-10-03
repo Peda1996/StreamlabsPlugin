@@ -3,6 +3,7 @@ package com.github.peda1996.streamlabsplugin;
 import io.socket.client.IO;
 import io.socket.client.Socket;
 import org.bukkit.Bukkit;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.json.JSONArray;
@@ -10,10 +11,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.net.URISyntaxException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 
 public class StreamlabsPlugin extends JavaPlugin {
 
@@ -28,24 +26,27 @@ public class StreamlabsPlugin extends JavaPlugin {
         String executePolicy = getConfig().getString("execute_policy");
 
         // Event handlers for platforms like Twitch, YouTube, etc.
-        Map<String, Object> eventHandlers = getConfig().getConfigurationSection("events").getValues(false);
+        ConfigurationSection eventHandlersSection = getConfig().getConfigurationSection("events");
 
         // Custom chat commands
+        ConfigurationSection chatCommandsSection = getConfig().getConfigurationSection("chat_commands");
         Map<String, String> chatCommands = new HashMap<>();
-        Map<String, Object> rawChatCommands = getConfig().getConfigurationSection("chat_commands").getValues(false);
-        for (Map.Entry<String, Object> entry : rawChatCommands.entrySet()) {
-            if (entry.getValue() instanceof String) {
-                chatCommands.put(entry.getKey(), (String) entry.getValue());
-            } else {
-                getLogger().warning("Chat command value for key " + entry.getKey() + " is not a string.");
+        if (chatCommandsSection != null) {
+            for (String key : chatCommandsSection.getKeys(false)) {
+                String value = chatCommandsSection.getString(key);
+                if (value != null) {
+                    chatCommands.put(key, value);
+                } else {
+                    getLogger().warning("Chat command value for key " + key + " is null.");
+                }
             }
         }
 
         // Connect to Streamlabs Socket API
-        connectToStreamlabsSocket(socketAccessToken, executePolicy, eventHandlers, chatCommands);
+        connectToStreamlabsSocket(socketAccessToken, executePolicy, eventHandlersSection, chatCommands);
     }
 
-    private void connectToStreamlabsSocket(String socketAccessToken, String executePolicy, Map<String, Object> eventHandlers, Map<String, String> chatCommands) {
+    private void connectToStreamlabsSocket(String socketAccessToken, String executePolicy, ConfigurationSection eventHandlers, Map<String, String> chatCommands) {
         try {
             IO.Options options = new IO.Options();
             options.transports = new String[]{"websocket"};
@@ -60,10 +61,13 @@ public class StreamlabsPlugin extends JavaPlugin {
 
             // Log incoming event
             socketClient.on("event", args -> {
-                getLogger().info("Received Event");
                 if (args.length > 0) {
-                    JSONObject eventData = (JSONObject) args[0];
-                    handleEvent(eventData, executePolicy, eventHandlers, chatCommands);
+                    try {
+                        JSONObject eventData = new JSONObject(args[0].toString());
+                        handleEvent(eventData, executePolicy, eventHandlers, chatCommands);
+                    } catch (Exception e) {
+                        getLogger().severe("Error parsing event data: " + e.getMessage());
+                    }
                 }
             });
 
@@ -86,42 +90,28 @@ public class StreamlabsPlugin extends JavaPlugin {
         }
     }
 
-    private void handleEvent(JSONObject eventData, String executePolicy, Map<String, Object> eventHandlers, Map<String, String> chatCommands) {
-        try {
-            getLogger().info("Received event: " + eventData.toString());
+    private void handleEvent(JSONObject eventData, String executePolicy, ConfigurationSection eventHandlers, Map<String, String> chatCommands) {
 
-            String eventFor = eventData.optString("for", "");
-            String eventType = eventData.optString("type", "");
+        // Extract the top-level event type
+        String eventType = eventData.optString("type", "");
+        String plattform = eventData.optString("for", "");
 
-            // Handle platform-specific events
-            if (eventHandlers.containsKey(eventFor)) {
-                Map<String, Object> platformEvents = (Map<String, Object>) eventHandlers.get(eventFor);
-                if (platformEvents.containsKey(eventType)) {
-                    List<String> commands = (List<String>) platformEvents.get(eventType);
-                    executeCommands(commands, executePolicy);
-                } else {
-                    getLogger().info("Unhandled event type: " + eventType);
-                }
-            } else {
-                getLogger().info("Unhandled platform: " + eventFor);
-            }
-
-            // Handle custom chat commands from the event's message
-            JSONArray messageArray = eventData.optJSONArray("message");
-            if (messageArray != null && messageArray.length() > 0) {
-                String chatMessage = messageArray.getJSONObject(0).optString("message", "");
-                for (Map.Entry<String, String> entry : chatCommands.entrySet()) {
-                    String chatCommand = entry.getKey();
-                    String command = entry.getValue();
-                    if (chatMessage.contains(chatCommand)) {
-                        executeCommand(command);
-                    }
-                }
-            }
-
-        } catch (JSONException e) {
-            getLogger().severe("JSON Exception: " + e.getMessage());
+        ConfigurationSection plattformSection = eventHandlers.getConfigurationSection(plattform);
+        if(plattformSection == null) {
+            getLogger().info("Unhandled plattform type: " + plattform);
+            return;
         }
+
+        List<String> commands  = plattformSection.getStringList(eventType);
+        if(commands.size() <= 0) {
+            if(!(eventType.contains("alertPlaying") || eventType.contains("streamlabels")))
+                getLogger().info("Unhandled eventType type: " + eventType + " Plattform:" + plattform);
+            return;
+        }
+
+        // Execute the associated commands with the follower's name
+        executeCommands(commands, executePolicy);
+
     }
 
     private void executeCommands(List<String> commands, String executePolicy) {
@@ -160,15 +150,18 @@ public class StreamlabsPlugin extends JavaPlugin {
     }
 
     private void executeCommand(String command) {
-        if (command.contains("%player%")) {
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                String playerCommand = command.replace("%player%", player.getName());
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), playerCommand);
+        Bukkit.getScheduler().runTask(this, () -> {
+            if (command.contains("%player%")) {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    String playerCommand = command.replace("%player%", player.getName());
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), playerCommand);
+                }
+            } else {
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
             }
-        } else {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
-        }
+        });
     }
+
 
     @Override
     public void onDisable() {
