@@ -1,78 +1,126 @@
 package com.github.peda1996.streamlabsplugin;
 
+import io.socket.client.IO;
+import io.socket.client.Socket;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.java_websocket.client.WebSocketClient;
-import org.java_websocket.handshake.ServerHandshake;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
-import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
 public class StreamlabsPlugin extends JavaPlugin {
 
-    private WebSocketClient socketClient;
+    private Socket socketClient;
     private int commandIndex = 0;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
 
-        String accessToken = getConfig().getString("access_token");
-        List<String> subscriptionCommands = getConfig().getStringList("subscription_commands");
-        List<String> likeCommands = getConfig().getStringList("like_commands");
+        String socketAccessToken = getConfig().getString("socket_access_token");
         String executePolicy = getConfig().getString("execute_policy");
-        Map<String, Object> chatCommands = getConfig().getConfigurationSection("chat_commands").getValues(false);
 
-        // Connect to the Streamlabs Socket API
-        connectToStreamlabsSocket(accessToken, subscriptionCommands, likeCommands, executePolicy, chatCommands);
+        // Event handlers for platforms like Twitch, YouTube, etc.
+        Map<String, Object> eventHandlers = getConfig().getConfigurationSection("events").getValues(false);
+
+        // Custom chat commands
+        Map<String, String> chatCommands = new HashMap<>();
+        Map<String, Object> rawChatCommands = getConfig().getConfigurationSection("chat_commands").getValues(false);
+        for (Map.Entry<String, Object> entry : rawChatCommands.entrySet()) {
+            if (entry.getValue() instanceof String) {
+                chatCommands.put(entry.getKey(), (String) entry.getValue());
+            } else {
+                getLogger().warning("Chat command value for key " + entry.getKey() + " is not a string.");
+            }
+        }
+
+        // Connect to Streamlabs Socket API
+        connectToStreamlabsSocket(socketAccessToken, executePolicy, eventHandlers, chatCommands);
     }
 
-    private void connectToStreamlabsSocket(String accessToken, List<String> subscriptionCommands, List<String> likeCommands, String executePolicy, Map<String, Object> chatCommands) {
+    private void connectToStreamlabsSocket(String socketAccessToken, String executePolicy, Map<String, Object> eventHandlers, Map<String, String> chatCommands) {
         try {
-            URI uri = new URI("wss://sockets.streamlabs.com/socket.io/?token=" + accessToken);
-            socketClient = new WebSocketClient(uri) {
-                @Override
-                public void onOpen(ServerHandshake handshake) {
-                    getLogger().info("Connected to Streamlabs Socket API.");
+            IO.Options options = new IO.Options();
+            options.transports = new String[]{"websocket"};
+            options.query = "token=" + socketAccessToken;
+
+            socketClient = IO.socket("https://sockets.streamlabs.com", options);
+
+            // Log when connected
+            socketClient.on(Socket.EVENT_CONNECT, args -> {
+                getLogger().info("Connected to Streamlabs Socket API.");
+            });
+
+            // Log incoming event
+            socketClient.on("event", args -> {
+                getLogger().info("Received Event");
+                if (args.length > 0) {
+                    JSONObject eventData = (JSONObject) args[0];
+                    handleEvent(eventData, executePolicy, eventHandlers, chatCommands);
                 }
+            });
 
-                @Override
-                public void onMessage(String message) {
-                    getLogger().info("Received event: " + message);
+            // Log disconnection
+            socketClient.on(Socket.EVENT_DISCONNECT, args -> {
+                getLogger().info("Disconnected from Streamlabs Socket API.");
+            });
 
-                    if (message.contains("subscription")) {
-                        executeCommands(subscriptionCommands, executePolicy);
-                    } else if (message.contains("like")) {
-                        executeCommands(likeCommands, executePolicy);
-                    }
 
-                    // Check for custom chat commands
-                    for (Map.Entry<String, Object> entry : chatCommands.entrySet()) {
-                        String chatCommand = entry.getKey();
-                        String command = entry.getValue().toString();
-                        if (message.contains(chatCommand)) {
-                            executeChatCommand(command);
-                        }
-                    }
-                }
+            // Log connection errors
+            socketClient.on(Socket.EVENT_CONNECT_ERROR, args -> {
+                getLogger().severe("Connection error: " + args[0]);
+            });
 
-                @Override
-                public void onClose(int code, String reason, boolean remote) {
-                    getLogger().info("Socket closed: " + reason);
-                }
 
-                @Override
-                public void onError(Exception ex) {
-                    getLogger().severe("WebSocket error: " + ex.getMessage());
-                }
-            };
+            // Connect the socket
             socketClient.connect();
         } catch (URISyntaxException e) {
-            getLogger().severe("Invalid URI for Streamlabs Socket API: " + e.getMessage());
+            getLogger().severe("Error connecting to Streamlabs Socket API: " + e.getMessage());
+        }
+    }
+
+    private void handleEvent(JSONObject eventData, String executePolicy, Map<String, Object> eventHandlers, Map<String, String> chatCommands) {
+        try {
+            getLogger().info("Received event: " + eventData.toString());
+
+            String eventFor = eventData.optString("for", "");
+            String eventType = eventData.optString("type", "");
+
+            // Handle platform-specific events
+            if (eventHandlers.containsKey(eventFor)) {
+                Map<String, Object> platformEvents = (Map<String, Object>) eventHandlers.get(eventFor);
+                if (platformEvents.containsKey(eventType)) {
+                    List<String> commands = (List<String>) platformEvents.get(eventType);
+                    executeCommands(commands, executePolicy);
+                } else {
+                    getLogger().info("Unhandled event type: " + eventType);
+                }
+            } else {
+                getLogger().info("Unhandled platform: " + eventFor);
+            }
+
+            // Handle custom chat commands from the event's message
+            JSONArray messageArray = eventData.optJSONArray("message");
+            if (messageArray != null && messageArray.length() > 0) {
+                String chatMessage = messageArray.getJSONObject(0).optString("message", "");
+                for (Map.Entry<String, String> entry : chatCommands.entrySet()) {
+                    String chatCommand = entry.getKey();
+                    String command = entry.getValue();
+                    if (chatMessage.contains(chatCommand)) {
+                        executeCommand(command);
+                    }
+                }
+            }
+
+        } catch (JSONException e) {
+            getLogger().severe("JSON Exception: " + e.getMessage());
         }
     }
 
@@ -122,14 +170,10 @@ public class StreamlabsPlugin extends JavaPlugin {
         }
     }
 
-    private void executeChatCommand(String command) {
-        executeCommand(command);
-    }
-
     @Override
     public void onDisable() {
-        if (socketClient != null && socketClient.isOpen()) {
-            socketClient.close();
+        if (socketClient != null && socketClient.connected()) {
+            socketClient.disconnect();
         }
     }
 }

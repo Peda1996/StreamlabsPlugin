@@ -1,18 +1,26 @@
-access_token: "your_access_token_here"
+socket_access_token: "YOUR_SOCKET_ACCESS_TOKEN"
 
-# Commands to execute on subscription and like events
-subscription_commands:
-  - "summon creeper %player%"            # Spawn a creeper for each player
-  - "give %player% minecraft:diamond 1"  # Give a diamond to each player
-
-like_commands:
-  - "summon sheep %player%"                  # Spawn a sheep for each player
-  - "give %player% minecraft:golden_apple 1" # Give a golden apple to each player
-
-# Command execution policy (random, all, inline)
-execute_policy: "random"  # Options: 'random', 'all', 'inline'
+# Commands for each event type
+events:
+  twitch_account:
+    follow:
+      - "say %player% was followed on Twitch!"
+    subscription:
+      - "give %player% minecraft:diamond 1"
+  youtube_account:
+    follow:
+      - "say %player% was followed on YouTube!"
+    subscription:
+      - "give %player% minecraft:golden_apple 1"
+    superchat:
+      - "say %player% received a YouTube Superchat!"
+  streamlabs:
+    donation:
+      - "say %player% received a donation!"
 
 # Custom chat commands
 chat_commands:
-  "!creeper": "summon creeper %player%"  # Spawn a creeper for each player
-  "!sheep": "summon sheep %player%"      # Spawn a sheep for each player
+  "!creeper": "summon creeper %player%"
+  "!sheep": "summon sheep %player%"
+
+execute_policy: "random"  # Options: random, all, inline
