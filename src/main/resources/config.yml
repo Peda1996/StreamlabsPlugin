@@ -1,0 +1,18 @@
+access_token: "your_access_token_here"
+
+# Commands to execute on subscription and like events
+subscription_commands:
+  - "summon creeper %player%"            # Spawn a creeper for each player
+  - "give %player% minecraft:diamond 1"  # Give a diamond to each player
+
+like_commands:
+  - "summon sheep %player%"                  # Spawn a sheep for each player
+  - "give %player% minecraft:golden_apple 1" # Give a golden apple to each player
+
+# Command execution policy (random, all, inline)
+execute_policy: "random"  # Options: 'random', 'all', 'inline'
+
+# Custom chat commands
+chat_commands:
+  "!creeper": "summon creeper %player%"  # Spawn a creeper for each player
+  "!sheep": "summon sheep %player%"      # Spawn a sheep for each player

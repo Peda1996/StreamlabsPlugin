@@ -1,0 +1,6 @@
+name: StreamlabsPlugin
+version: '${project.version}'
+main: com.github.peda1996.streamlabsplugin.StreamlabsPlugin
+api-version: 1.21
+author: com.github.peda1996
+description: A Minecraft plugin that listens for Streamlabs events and executes custom commands.
