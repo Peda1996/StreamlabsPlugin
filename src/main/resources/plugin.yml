@@ -4,3 +4,9 @@ main: com.github.peda1996.streamlabsplugin.StreamlabsPlugin
 api-version: 1.21
 author: com.github.peda1996
 description: A Minecraft plugin that listens for Streamlabs events and executes custom commands.
+
+commands:
+  streamlabsreload:
+    description: Reloads the plugin configuration and reconnects to the Streamlabs Socket API.
+    usage: /streamlabsreload
+    permission: streamlabsplugin.reload

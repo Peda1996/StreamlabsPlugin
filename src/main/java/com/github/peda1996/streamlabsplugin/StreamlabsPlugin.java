@@ -20,7 +20,16 @@ public class StreamlabsPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        // Register the reload command
+        getCommand("streamlabsreload").setExecutor(new StreamlabsReloadCommand(this));
+        loadConfigAndConnect();
+    }
+
+
+
+    public void loadConfigAndConnect() {
         saveDefaultConfig();
+        reloadConfig();
 
         String socketAccessToken = getConfig().getString("socket_access_token");
         String executePolicy = getConfig().getString("execute_policy");
