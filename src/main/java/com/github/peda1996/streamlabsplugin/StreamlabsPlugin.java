@@ -6,8 +6,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.net.URISyntaxException;
@@ -16,7 +14,7 @@ import java.util.*;
 public class StreamlabsPlugin extends JavaPlugin {
 
     private Socket socketClient;
-    private int commandIndex = 0;
+    private final Map<String, Integer> commandIndexMap = new HashMap<>(); // Track command indices for each event type
 
     @Override
     public void onEnable() {
@@ -24,8 +22,6 @@ public class StreamlabsPlugin extends JavaPlugin {
         getCommand("streamlabsreload").setExecutor(new StreamlabsReloadCommand(this));
         loadConfigAndConnect();
     }
-
-
 
     public void loadConfigAndConnect() {
         saveDefaultConfig();
@@ -113,24 +109,23 @@ public class StreamlabsPlugin extends JavaPlugin {
         String plattform = eventData.optString("for", "");
 
         ConfigurationSection plattformSection = eventHandlers.getConfigurationSection(plattform);
-        if(plattformSection == null) {
-            getLogger().info("Unhandled plattform type: " + plattform);
+        if (plattformSection == null) {
+            getLogger().info("Unhandled platform type: " + plattform);
             return;
         }
 
-        List<String> commands  = plattformSection.getStringList(eventType);
-        if(commands.size() <= 0) {
-            if(!(eventType.contains("alertPlaying") || eventType.contains("streamlabels")))
-                getLogger().info("Unhandled eventType type: " + eventType + " Plattform:" + plattform);
+        List<String> commands = plattformSection.getStringList(eventType);
+        if (commands.size() <= 0) {
+            if (!(eventType.contains("alertPlaying") || eventType.contains("streamlabels")))
+                getLogger().info("Unhandled event type: " + eventType + " Platform:" + plattform);
             return;
         }
 
         // Execute the associated commands with the follower's name
-        executeCommands(commands, executePolicy);
-
+        executeCommands(eventType, commands, executePolicy);
     }
 
-    private void executeCommands(List<String> commands, String executePolicy) {
+    private void executeCommands(String eventType, List<String> commands, String executePolicy) {
         if (commands.isEmpty()) {
             getLogger().warning("No commands to execute.");
             return;
@@ -139,7 +134,7 @@ public class StreamlabsPlugin extends JavaPlugin {
         switch (executePolicy.toLowerCase()) {
             case "random" -> executeRandomCommand(commands);
             case "all" -> executeAllCommands(commands);
-            case "inline" -> executeInlineCommand(commands);
+            case "inline" -> executeInlineCommand(eventType, commands);
             default -> getLogger().warning("Invalid execute policy: " + executePolicy);
         }
     }
@@ -156,13 +151,17 @@ public class StreamlabsPlugin extends JavaPlugin {
         }
     }
 
-    private void executeInlineCommand(List<String> commands) {
-        if (commandIndex >= commands.size()) {
-            commandIndex = 0;
-        }
-        String command = commands.get(commandIndex);
+    private void executeInlineCommand(String eventType, List<String> commands) {
+        // Get or initialize the command index for this specific event type
+        int currentIndex = commandIndexMap.getOrDefault(eventType, 0);
+
+        // Execute the command at the current index
+        String command = commands.get(currentIndex);
         executeCommand(command);
-        commandIndex++;
+
+        // Update the index, wrapping around if necessary
+        currentIndex = (currentIndex + 1) % commands.size();
+        commandIndexMap.put(eventType, currentIndex); // Update the index map for this event type
     }
 
     private void executeCommand(String command) {
@@ -177,7 +176,6 @@ public class StreamlabsPlugin extends JavaPlugin {
             }
         });
     }
-
 
     @Override
     public void onDisable() {
