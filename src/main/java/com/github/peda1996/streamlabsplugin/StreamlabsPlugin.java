@@ -31,6 +31,12 @@ public class StreamlabsPlugin extends JavaPlugin {
         saveDefaultConfig();
         reloadConfig();
 
+        // Disconnect existing socket if connected
+        if (socketClient != null && socketClient.connected()) {
+            socketClient.disconnect();
+            getLogger().info("Disconnected from previous Streamlabs Socket API connection.");
+        }
+
         String socketAccessToken = getConfig().getString("socket_access_token");
         String executePolicy = getConfig().getString("execute_policy");
 
@@ -54,6 +60,7 @@ public class StreamlabsPlugin extends JavaPlugin {
         // Connect to Streamlabs Socket API
         connectToStreamlabsSocket(socketAccessToken, executePolicy, eventHandlersSection, chatCommands);
     }
+
 
     private void connectToStreamlabsSocket(String socketAccessToken, String executePolicy, ConfigurationSection eventHandlers, Map<String, String> chatCommands) {
         try {
